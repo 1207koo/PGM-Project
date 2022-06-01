@@ -57,12 +57,24 @@ def criterion_episodic(features, targets, n_shots = args.n_shots[0]):
     return torch.nn.CrossEntropyLoss()(-1 * dists / args.temperature, targets.reshape(args.n_ways,-1)[:,n_shots:].reshape(-1))
 
 def sphering(features):
+    if len(features.shape) == 4:
+        for i in range(features.shape[0]):
+            features[i] = sphering(features[i])
+        return features
     return features / torch.norm(features, p = 2, dim = 2, keepdim = True)
 
 def centering(train_features, features):
+    if len(features.shape) == 4:
+        for i in range(features.shape[0]):
+            features[i] = centering(train_features[i], features[i])
+        return features
     return features - train_features.reshape(-1, train_features.shape[2]).mean(dim = 0).unsqueeze(0).unsqueeze(0)
 
 def preprocess(train_features, features, elements_train=None):
+    if len(features.shape) == 4:
+        for i in range(features.shape[0]):
+            features[i] = preprocess(train_features[i], features[i], elements_train)
+        return features
     if elements_train != None and "M" in args.preprocessing:
         train_features = torch.cat([train_features[l, torch.arange(elements_train[l]), :] for l in range(len(elements_train))], axis=0).unsqueeze(1)
     
@@ -88,6 +100,10 @@ def preprocess(train_features, features, elements_train=None):
 
 def postprocess(runs):
     # runs shape: [100, 5, 16, 640]
+    if len(runs.shape) == 5:
+        for i in range(runs.shape[0]):
+            runs[i] = postprocess(runs[i])
+        return runs
     for i in range(len(args.postprocessing)):
         if args.postprocessing[i] == 'R':
             runs = torch.relu(runs)

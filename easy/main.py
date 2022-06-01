@@ -20,6 +20,7 @@ import wideresnet
 import resnet12
 import s2m2
 import mlp
+import sample
 print("models.")
 if args.ema > 0:
     from torch_ema import ExponentialMovingAverage
@@ -42,19 +43,30 @@ def crit(output, features, target):
         else:
             criterion = torch.nn.CrossEntropyLoss()
         return criterion(output, target)
+bce_loss = nn.BCEWithLogitsLoss()
+def gan_loss(verdict, is_real):
+    if is_real:
+        target = torch.ones_like(verdict)
+    else:
+        target = torch.zeros_like(verdict)
+    return bce_loss(verdict, target)
 
 ### main train function
 def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = False):
-    model.train()
+    for k in model.keys():
+        model[k].train()
     global last_update
     losses, total = 0., 0
+    if 'sampler' in model.keys() and 'discriminator' in model.keys():
+        losses_g, losses_d = 0., 0.
     
     for batch_idx, (data, target) in enumerate(train_loader):
             
         data, target = data.to(args.device), target.to(args.device)
 
         # reset gradients
-        optimizer.zero_grad()
+        for k in optimizer.keys():
+            optimizer[k].zero_grad()
 
         if mm: # as in method S2M2R, to be used in combination with rotations
             # if you do not understand what I just wrote, then just ignore this option, it might be better for now
@@ -64,7 +76,7 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                 new_chunks.append(torch.randperm(sizes[i].shape[0]))
             index_mixup = torch.cat(new_chunks, dim = 0)
             lam = np.random.beta(2, 2)
-            output, features = model(data, index_mixup = index_mixup, lam = lam)
+            output, features = model['model'](data, index_mixup = index_mixup, lam = lam)
             if args.rotations:
                 output, _ = output
             loss_mm = lam * crit(output, features, target) + (1 - lam) * crit(output, features, target[index_mixup])
@@ -85,31 +97,183 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
             index_mixup = torch.randperm(data.shape[0])
             lam = random.random()            
             if args.mm:
-                output, features = model(data, index_mixup = index_mixup, lam = lam)
+                output, features = model['model'](data, index_mixup = index_mixup, lam = lam)
             else:
                 data_mixed = lam * data + (1 - lam) * data[index_mixup]
-                output, features = model(data_mixed)
+                output, features = model['model'](data_mixed)
             if args.rotations:
                 output, output_rot = output
                 loss = ((lam * crit(output, features, target) + (1 - lam) * crit(output, features, target[index_mixup])) + (lam * crit(output_rot, features, target_rot) + (1 - lam) * crit(output_rot, features, target_rot[index_mixup]))) / 2
             else:
                 loss = lam * crit(output, features, target) + (1 - lam) * crit(output, features, target[index_mixup])
         else:
-            output, features = model(data)
-            if args.rotations:
-                output, output_rot = output
-                loss = 0.5 * crit(output, features, target) + 0.5 * crit(output_rot, features, target_rot)                
+            if 'sampler' in model.keys() and 'discriminator' in model.keys():
+                if args.rotations:
+                    to, tr, tf = [], [], []
+                    fo, fr, ff = [], [], []
+                    for i in range(args.true_sample):
+                        output, features = model['model'](data)
+                        output, output_rot = output
+                        to.append(output)
+                        tr.append(output_rot)
+                        tf.append(features)
+                    for i in range(args.false_sample):
+                        if i == 0:
+                            features = model['sampler'](tf[0].detach())
+                        else:
+                            features = model['sampler'](ff[-1].detach())
+                        output = model['model'](features, run_type='linear')
+                        output_rot = model['model'](features, run_type='linear_rot')
+                        fo.append(output)
+                        fr.append(output_rot)
+                        ff.append(features)
+                    # generator
+                    loss_g = 0.0
+                    for i in range(args.false_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            feature = torch.cat([tf[0], ff[i]], dim=1)
+                        else:
+                            feature = ff[i]
+                        scores = model['discriminator'](feature)
+                        loss_g += gan_loss(scores, True)
+                    loss_g /= args.false_sample
+                    loss_g.backward()
+                    optimizer['sampler'].step()
+                    # discriminator
+                    loss_d = 0.0
+                    fo, fr, ff = [], [], []
+                    for i in range(args.false_sample):
+                        if i == 0:
+                            features = model['sampler'](tf[0])
+                        else:
+                            features = model['sampler'](ff[-1])
+                        output = model['model'](features, run_type='linear')
+                        output_rot = model['model'](features, run_type='linear_rot')
+                        fo.append(output)
+                        fr.append(output_rot)
+                        ff.append(features)
+                    c = 0
+                    for i in range(args.true_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            for j in range(args.true_sample):
+                                if i == j:
+                                    continue
+                                scores = model['discriminator'](torch.cat([tf[i].detach(), tf[j].detach()], dim=1))
+                                c += 1
+                                loss_d += gan_loss(scores, True)
+                        else:
+                            scores = model['discriminator'](tf[i].detach())
+                            c += 1
+                            loss_d += gan_loss(scores, True)
+                    for i in range(args.false_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            feature = torch.cat([tf[0].detach(), ff[i].detach()], dim=1)
+                        else:
+                            feature = ff[i].detach()
+                        scores = model['discriminator'](feature)
+                        c += 1
+                        loss_d += gan_loss(scores, False)
+                    loss_d /= c
+                    loss_d.backward()
+                    optimizer['discriminator'].step()
+                    # feature extraction (+ sampler)
+                    optimizer['sampler'].zero_grad()
+                    loss = 0
+                    for i in range(args.true_sample):
+                        loss += 0.5 * crit(to[i], tf[i], target) + 0.5 * crit(tr[i], tf[i], target_rot)
+                    for i in range(args.false_sample):
+                        loss += 0.5 * crit(fo[i], ff[i], target) + 0.5 * crit(fr[i], ff[i], target_rot)
+                    loss /= (args.true_sample + args.false_sample)
+                else:
+                    to, tf = [], [], []
+                    fo, ff = [], [], []
+                    for i in range(args.true_sample):
+                        output, features = model['model'](data)
+                        to.append(output)
+                        tf.append(features)
+                    for i in range(args.false_sample):
+                        if i == 0:
+                            features = model['sampler'](tf[0].detach())
+                        else:
+                            features = model['sampler'](ff[-1].detach())
+                        output = model['model'](features, run_type='linear')
+                        fo.append(output)
+                        ff.append(features)
+                    # generator
+                    loss_g = 0.0
+                    for i in range(args.false_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            feature = torch.cat([tf[0].detach(), ff[i]], dim=1)
+                        else:
+                            feature = ff[i]
+                        scores = model['discriminator'](feature)
+                        loss_g += gan_loss(scores, True)
+                    loss_g /= args.false_sample
+                    loss_g.backward()
+                    optimizer['sampler'].step()
+                    optimizer['sampler'].zero_grad()
+                    # discriminator
+                    loss_d = 0.0
+                    fo, ff = [], []
+                    for i in range(args.false_sample):
+                        if i == 0:
+                            features = model['sampler'](tf[0])
+                        else:
+                            features = model['sampler'](ff[-1])
+                        output = model['model'](features, run_type='linear')
+                        fo.append(output)
+                        ff.append(features)
+                    c = 0
+                    for i in range(args.true_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            for j in range(args.true_sample):
+                                if i == j:
+                                    continue
+                                scores = model['discriminator'](torch.cat([tf[i].detach(), tf[j].detach()], dim=1))
+                                c += 1
+                                loss_d += gan_loss(scores, True)
+                        else:
+                            scores = model['discriminator'](tf[i].detach())
+                            c += 1
+                            loss_d += gan_loss(scores, True)
+                    for i in range(args.false_sample):
+                        if 'double' in args.discriminator_model.lower():
+                            feature = torch.cat([tf[0].detach(), ff[i].detach()], dim=1)
+                        else:
+                            feature = ff[i].detach()
+                        scores = model['discriminator'](feature)
+                        c += 1
+                        loss_d += gan_loss(scores, False)
+                    loss_d /= c
+                    loss_d.backward()
+                    optimizer['discriminator'].step()
+                    # feature extraction (+ sampler)
+                    loss = 0
+                    for i in range(args.true_sample):
+                        loss += crit(to[i], tf[i], target)
+                    for i in range(args.false_sample):
+                        loss += crit(fo[i], ff[i], target)
+                    loss /= (args.true_sample + args.false_sample)
+                    loss.backward()
             else:
-                loss = crit(output, features, target)
+                output, features = model['model'](data)
+                if args.rotations:
+                    output, output_rot = output
+                    loss = 0.5 * crit(output, features, target) + 0.5 * crit(output_rot, features, target_rot)                
+                else:
+                    loss = crit(output, features, target)
+                loss.backward()
 
-        # backprop loss
-        loss.backward()
-            
         losses += loss.item() * data.shape[0]
         total += data.shape[0]
         # update parameters
-        optimizer.step()
-        scheduler.step()
+        optimizer['model'].step()
+        if 'sampler' in model.keys() and 'discriminator' in model.keys():
+            losses_g += loss_g.item() * data.shape[0]
+            losses_d += loss_d.item() * data.shape[0]
+            optimizer['sampler'].step()
+        for k in scheduler.keys():
+            scheduler[k].step()
         if args.ema > 0:
             ema.update()
 
@@ -119,24 +283,35 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
             length = len(train_loader)
         # print advances if at least 100ms have passed since last print
         if (batch_idx + 1 == length) or (time.time() - last_update > 0.1) and not args.quiet:
-            if batch_idx + 1 < length:
-                print("\r{:4d} {:4d} / {:4d} loss: {:.5f} time: {:s} lr: {:.5f} ".format(epoch, 1 + batch_idx, length, losses / total, format_time(time.time() - start_time), float(scheduler.get_last_lr()[0])), end = "")
+            if 'sampler' in model.keys() and 'discriminator' in model.keys():
+                if batch_idx + 1 < length:
+                    print("\r{:4d} {:4d} / {:4d} loss: {:.5f} lr_g: {:.5f} lr_d: {:.5f} time: {:s} lr: {:.5f} ".format(epoch, 1 + batch_idx, length, losses / total, losses_g / total, losses_d / total, format_time(time.time() - start_time), float(scheduler['model'].get_last_lr()[0])), end = "")
+                else:
+                    print("\r{:4d} loss: {:.5f} lr_g: {:.5f} lr_d: {:.5f} ".format(epoch, losses / total, losses_g / total, losses_d / total), end = '')
             else:
-                print("\r{:4d} loss: {:.5f} ".format(epoch, losses / total), end = '')
+                if batch_idx + 1 < length:
+                    print("\r{:4d} {:4d} / {:4d} loss: {:.5f} time: {:s} lr: {:.5f} ".format(epoch, 1 + batch_idx, length, losses / total, format_time(time.time() - start_time), float(scheduler['model'].get_last_lr()[0])), end = "")
+                else:
+                    print("\r{:4d} loss: {:.5f} ".format(epoch, losses / total), end = '')
             last_update = time.time()
 
         if few_shot and total >= args.dataset_size and args.dataset_size > 0:
             break
             
     if args.wandb:
-        wandb.log({"epoch":epoch, "train_loss": losses / total})
+        save_dict = {"epoch":epoch, "train_loss": losses / total}
+        if 'sampler' in model.keys() and 'discriminator' in model.keys():
+            save_dict["train_loss_g"] = losses_g / total
+            save_dict["train_loss_d"] = losses_d / total
+        wandb.log(save_dict)
 
     # return train_loss
     return { "train_loss" : losses / total}
 
 # function to compute accuracy in the case of standard classification
 def test(model, test_loader):
-    model.eval()
+    for k in model.keys():
+        model[k].eval()
     test_loss, accuracy, accuracy_top_5, total = 0, 0, 0, 0
     
     with torch.no_grad():
@@ -145,9 +320,21 @@ def test(model, test_loader):
             ema.copy_to()
         for data, target in test_loader:
             data, target = data.to(args.device), target.to(args.device)
-            output, _ = model(data)
-            if args.rotations:
-                output, _ = output
+            if 'sampler' in model.keys():
+                outputs = []
+                output, feature = model['model'](data)
+                if args.rotations:
+                    output, _ = output
+                outputs.append(output)
+                for _ in range(args.false_sample):
+                    feature = model['sampler'](feature)
+                    output = model['model'](feature, run_type='linear')
+                    outputs.append(output)
+                output = sum(outputs) / len(outputs)
+            else:
+                output, _ = model['model'](data)
+                if args.rotations:
+                    output, _ = output
             test_loss += criterion(output, target).item() * data.shape[0]
             pred = output.argmax(dim=1, keepdim=True)
             accuracy += pred.eq(target.view_as(pred)).sum().item()
@@ -163,7 +350,8 @@ def test(model, test_loader):
         if args.ema > 0:
             ema.restore()
     # return results
-    model.train()
+    for k in model.keys():
+        model[k].train()
     
     if args.wandb:
         wandb.log({ "test_loss" : test_loss / total, "test_acc" : accuracy / total, "test_acc_top_5" : accuracy_top_5 / total})
@@ -193,25 +381,42 @@ def train_complete(model, loaders, mixup = False):
             length = len(train_loader)
 
         if (args.cosine and epoch % args.milestones[0] == 0) or epoch == 0:
-            if lr < 0:
-                optimizer = torch.optim.Adam(model.parameters(), lr = -1 * lr)
-            else:
-                optimizer = torch.optim.SGD(model.parameters(), lr = lr, momentum = 0.9, weight_decay = 5e-4, nesterov = True)
+            optimizer = {}
+            scheduler = {}
+            for k in model.keys():
+                base = 1.0
+                if k != 'model':
+                    base = 0.1
+                if lr < 0:
+                    optimizer[k] = torch.optim.Adam(model[k].parameters(), lr = -1 * base * lr)
+                else:
+                    optimizer[k] = torch.optim.SGD(model[k].parameters(), lr = base * lr, momentum = 0.9, weight_decay = 5e-4, nesterov = True)
+                if args.cosine:
+                    scheduler[k] = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer[k], T_max = args.milestones[0] * length)
+                else:
+                    scheduler[k] = torch.optim.lr_scheduler.MultiStepLR(optimizer[k], milestones = list(np.array(args.milestones) * length), gamma = args.gamma)
             if args.cosine:
-                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max = args.milestones[0] * length)
                 lr = lr * args.gamma
-            else:
-                scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones = list(np.array(args.milestones) * length), gamma = args.gamma)
 
         train_stats = train(model, train_loader, optimizer, (epoch + 1), scheduler, mixup = mixup, mm = epoch >= args.epochs)        
         
         if args.save_model != "" and not few_shot:
             if len(args.devices) == 1:
-                torch.save(model.state_dict(), args.save_model)
+                for k in model.keys():
+                    if k == 'model':
+                        torch.save(model[k].state_dict(), args.save_model)
+                    else:
+                        l = len(args.save_model.split('.')[-1]) + 1
+                        torch.save(model[k].state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:])
             else:
-                torch.save(model.module.state_dict(), args.save_model)
+                for k in model.keys():
+                    if k == 'model':
+                        torch.save(model[k].module.state_dict(), args.save_model)
+                    else:
+                        l = len(args.save_model.split('.')[-1])
+                        torch.save(model[k].module.state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:])
         
-        if (epoch + 1) > args.skip_epochs:
+        if (epoch + 1) > args.skip_epochs and (epoch - args.skip_epochs) % args.test_every == 0:
             if few_shot:
                 if args.ema > 0:
                     ema.store()
@@ -294,19 +499,35 @@ if args.output != "":
     f.close()
 
 ### function to create model
-def create_model():
-    if args.model.lower() == "resnet18":
-        return resnet.ResNet18(args.feature_maps, input_shape, num_classes, few_shot, args.rotations).to(args.device)
-    if args.model.lower() == "resnet20":
-        return resnet.ResNet20(args.feature_maps, input_shape, num_classes, few_shot, args.rotations).to(args.device)
-    if args.model.lower() == "wideresnet":
-        return wideresnet.WideResNet(args.feature_maps, input_shape, few_shot, args.rotations, num_classes = num_classes).to(args.device)
-    if args.model.lower() == "resnet12":
-        return resnet12.ResNet12(args.feature_maps, input_shape, num_classes, few_shot, args.rotations).to(args.device)
-    if args.model.lower()[:3] == "mlp":
-        return mlp.MLP(args.feature_maps, int(args.model[3:]), input_shape, num_classes, args.rotations, few_shot).to(args.device)
-    if args.model.lower() == "s2m2r":
-        return s2m2.S2M2R(args.feature_maps, input_shape, args.rotations, num_classes = num_classes).to(args.device)
+def create_model(model_type):
+    model_type = model_type.lower()
+    nondeterministic = (model_type[-3:] == '_nd')
+    if nondeterministic:
+        model_type = model_type[:-3]
+    if model_type == "resnet18":
+        return resnet.ResNet18(args.feature_maps, input_shape, num_classes, few_shot, args.rotations, nondeterministic=nondeterministic).to(args.device)
+    if model_type == "resnet20":
+        return resnet.ResNet20(args.feature_maps, input_shape, num_classes, few_shot, args.rotations, nondeterministic=nondeterministic).to(args.device)
+    if model_type == "wideresnet":
+        return wideresnet.WideResNet(args.feature_maps, input_shape, few_shot, args.rotations, num_classes = num_classes, nondeterministic=nondeterministic).to(args.device)
+    if model_type == "resnet12":
+        return resnet12.ResNet12(args.feature_maps, input_shape, num_classes, few_shot, args.rotations, nondeterministic=nondeterministic).to(args.device)
+    if model_type[:3] == "mlp":
+        return mlp.MLP(args.feature_maps, int(model_type[3:]), input_shape, num_classes, args.rotations, few_shot, nondeterministic=nondeterministic).to(args.device)
+    if model_type == "s2m2r":
+        return s2m2.S2M2R(args.feature_maps, input_shape, args.rotations, num_classes = num_classes, nondeterministic=nondeterministic).to(args.device)
+    if model_type == 'sampler2':
+        return sample.Sampler2(args.feature_maps, nondeterministic=nondeterministic).to(args.device)
+    if model_type == 'sampler3':
+        return sample.Sampler3(args.feature_maps, nondeterministic=nondeterministic).to(args.device)
+    if model_type == 'discriminatorsingle2':
+        return sample.DiscriminatorSingle2(args.feature_maps).to(args.device)
+    if model_type == 'discriminatorsingle3':
+        return sample.DiscriminatorSingle3(args.feature_maps).to(args.device)
+    if model_type == 'discriminatordouble3':
+        return sample.DiscriminatorDouble3(args.feature_maps).to(args.device)
+    if model_type == 'discriminatordouble4':
+        return sample.DiscriminatorDouble4(args.feature_maps).to(args.device)
 
 if args.test_features != "":
     try:
@@ -341,19 +562,37 @@ for i in range(args.runs):
             notes=str(vars(args))
             )
         wandb.log({"run": i})
-    model = create_model()
+    model = {}
+    model['model'] = create_model(args.model)
     if args.ema > 0:
-        ema = ExponentialMovingAverage(model.parameters(), decay=args.ema)
-
+        ema = ExponentialMovingAverage(model['model'].parameters(), decay=args.ema)
     if args.load_model != "":
-        model.load_state_dict(torch.load(args.load_model, map_location=torch.device(args.device)))
-        model.to(args.device)
-
+        model['model'].load_state_dict(torch.load(args.load_model, map_location=torch.device(args.device)))
+        model['model'].to(args.device)
     if len(args.devices) > 1:
-        model = torch.nn.DataParallel(model, device_ids = args.devices)
+        model['model'] = torch.nn.DataParallel(model['model'], device_ids = args.devices)
+    
+    if args.sampler_model != "":
+        model['sampler'] = create_model(args.sampler_model)
+        if args.load_sampler_model != "":
+            model['sampler'].load_state_dict(torch.load(args.load_sampler_model, map_location=torch.device(args.device)))
+            model['sampler'].to(args.device)
+        if len(args.devices) > 1:
+            model['sampler'] = torch.nn.DataParallel(model['sampler'], device_ids = args.devices)
+    if args.discriminator_model != "":
+        model['discriminator'] = create_model(args.discriminator_model)
+        if args.load_discriminator_model != "":
+            model['discriminator'].load_state_dict(torch.load(args.load_discriminator_model, map_location=torch.device(args.device)))
+            model['discriminator'].to(args.device)
+        if len(args.devices) > 1:
+            model['discriminator'] = torch.nn.DataParallel(model['discriminator'], device_ids = args.devices)
+
     
     if i == 0:
-        print("Number of trainable parameters in model is: " + str(np.sum([p.numel() for p in model.parameters()])))
+        for k in ['model', 'sampler', 'discriminator']:
+            if k not in model.keys():
+                continue
+            print("Number of trainable parameters in %s is: "%k + str(np.sum([p.numel() for p in model[k].parameters()])))
 
     # training
     test_stats = train_complete(model, loaders, mixup = args.mixup)

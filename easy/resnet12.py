@@ -4,12 +4,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import sys
+sys.path.append('..')
+import nd
+
 class BasicBlockRN12(nn.Module):
-    def __init__(self, in_planes, planes):
+    def __init__(self, in_planes, planes, nondeterministic=False):
         super(BasicBlockRN12, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
+        if nondeterministic:
+            self.conv2 = nd.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
+        else:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
@@ -29,13 +36,13 @@ class BasicBlockRN12(nn.Module):
         return out
     
 class ResNet12(nn.Module):
-    def __init__(self, feature_maps, input_shape, num_classes, few_shot, rotations):
+    def __init__(self, feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=False):
         super(ResNet12, self).__init__()        
         layers = []
-        layers.append(BasicBlockRN12(input_shape[0], feature_maps))
-        layers.append(BasicBlockRN12(feature_maps, int(2.5 * feature_maps)))
-        layers.append(BasicBlockRN12(int(2.5 * feature_maps), 5 * feature_maps))
-        layers.append(BasicBlockRN12(5 * feature_maps, 10 * feature_maps))        
+        layers.append(BasicBlockRN12(input_shape[0], feature_maps, nondeterministic=nondeterministic))
+        layers.append(BasicBlockRN12(feature_maps, int(2.5 * feature_maps), nondeterministic=nondeterministic))
+        layers.append(BasicBlockRN12(int(2.5 * feature_maps), 5 * feature_maps, nondeterministic=nondeterministic))
+        layers.append(BasicBlockRN12(5 * feature_maps, 10 * feature_maps, nondeterministic=nondeterministic))        
         self.layers = nn.Sequential(*layers)
         self.linear = linear(10 * feature_maps, num_classes)
         self.rotations = rotations
@@ -48,7 +55,11 @@ class ResNet12(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, index_mixup = None, lam = -1):
+    def forward(self, x, index_mixup = None, lam = -1, run_type = 'forward'):
+        if run_type == 'linear':
+            return self.linear(x)
+        elif run_type == 'linear_rot':
+            return self.linear_rot(x)
         if lam != -1:
             mixup_layer = random.randint(0, 3)
         else:

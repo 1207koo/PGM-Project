@@ -1,0 +1,1 @@
+python main.py --device "cuda:0123" --dataset miniimagenet --model ResNet12_nd --rotations --cosine --save-model "save_nd/mini0.pt"

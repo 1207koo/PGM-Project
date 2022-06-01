@@ -5,13 +5,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import WeightNorm
 
+import sys
+sys.path.append('..')
+import nd
+
 class BasicBlockWRN(nn.Module):
-    def __init__(self, in_planes, out_planes, stride, drop_rate):
+    def __init__(self, in_planes, out_planes, stride, drop_rate, nondeterministic=False):
         super(BasicBlockWRN, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                               padding=1, bias=False)
+        if nondeterministic:
+            self.conv1 = nd.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                                   padding=1, bias=False)
+        else:
+            self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                                   padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_planes)
         self.relu2 = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1,
@@ -32,33 +40,37 @@ class BasicBlockWRN(nn.Module):
         return torch.add(x if self.equalInOut else self.convShortcut(x), out)
 
 class NetworkBlock(nn.Module):
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride, drop_rate):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride, drop_rate, nondeterministic=False):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, drop_rate)
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, drop_rate):
+        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, drop_rate, nondeterministic=nondeterministic)
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, drop_rate, nondeterministic=False):
         layers = []
         for i in range(int(nb_layers)):
-            layers.append(block(i == 0 and in_planes or out_planes, out_planes, i == 0 and stride or 1, drop_rate))
+            layers.append(block(i == 0 and in_planes or out_planes, out_planes, i == 0 and stride or 1, drop_rate, nondeterministic=nondeterministic))
         return nn.Sequential(*layers)
     def forward(self, x):
         return self.layer(x)
 
 class WideResNet(nn.Module):
-    def __init__(self, feature_maps, input_shape, few_shot, rotations, depth = 28, widen_factor = 10, num_classes = 64, drop_rate = args.dropout):
+    def __init__(self, feature_maps, input_shape, few_shot, rotations, depth = 28, widen_factor = 10, num_classes = 64, drop_rate = args.dropout, nondeterministic=False):
         super(WideResNet, self).__init__()
         nChannels = [feature_maps, feature_maps*widen_factor, 2 * feature_maps*widen_factor, 4 * feature_maps*widen_factor]
         n = (depth - 4) / 6
         self.conv1 = nn.Conv2d(input_shape[0], nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
         self.blocks = torch.nn.ModuleList()
-        self.blocks.append(NetworkBlock(n, nChannels[0], nChannels[1], BasicBlockWRN, 1, drop_rate))
-        self.blocks.append(NetworkBlock(n, nChannels[1], nChannels[2], BasicBlockWRN, 2, drop_rate))
-        self.blocks.append(NetworkBlock(n, nChannels[2], nChannels[3], BasicBlockWRN, 2, drop_rate))
+        self.blocks.append(NetworkBlock(n, nChannels[0], nChannels[1], BasicBlockWRN, 1, drop_rate, nondeterministic=nondeterministic))
+        self.blocks.append(NetworkBlock(n, nChannels[1], nChannels[2], BasicBlockWRN, 2, drop_rate, nondeterministic=nondeterministic))
+        self.blocks.append(NetworkBlock(n, nChannels[2], nChannels[3], BasicBlockWRN, 2, drop_rate, nondeterministic=nondeterministic))
         self.bn = nn.BatchNorm2d(nChannels[3])
         self.linear = linear(nChannels[3], int(num_classes))
         self.rotations = rotations
         self.linear_rot = linear(nChannels[3], 4)
 
-    def forward(self, x, index_mixup = None, lam = -1):
+    def forward(self, x, index_mixup = None, lam = -1, run_type = 'forward'):
+        if run_type == 'linear':
+            return self.linear(x)
+        elif run_type == 'linear_rot':
+            return self.linear_rot(x)
         if lam != -1:
             mixup_layer = random.randint(0, 3)
         else:

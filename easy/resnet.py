@@ -5,10 +5,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import WeightNorm
 
+import sys
+sys.path.append('..')
+import nd
+
 class BasicBlock(nn.Module):
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, in_planes, planes, stride=1, nondeterministic=False):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        if nondeterministic:
+            self.conv1 = nd.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        else:
+            self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
@@ -29,7 +36,7 @@ class BasicBlock(nn.Module):
         return out
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, feature_maps, input_shape, num_classes, few_shot, rotations):
+    def __init__(self, block, num_blocks, feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=False):
         super(ResNet, self).__init__()
         self.in_planes = feature_maps
         self.length = len(num_blocks)
@@ -37,25 +44,29 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(feature_maps)
         layers = []
         for i, nb in enumerate(num_blocks):
-            layers.append(self._make_layer(block, (2 ** i) * feature_maps, nb, stride = 1 if i == 0 else 2))
+            layers.append(self._make_layer(block, (2 ** i) * feature_maps, nb, stride = 1 if i == 0 else 2, nondeterministic=nondeterministic))
         self.layers = nn.Sequential(*layers)
         self.linear = linear((2 ** (len(num_blocks) - 1)) * feature_maps, num_classes)
         self.linear_rot = linear((2 ** (len(num_blocks) - 1)) * feature_maps, 4)
         self.rotations = rotations
         self.depth = len(num_blocks)
 
-    def _make_layer(self, block, planes, num_blocks, stride):
+    def _make_layer(self, block, planes, num_blocks, stride, nondeterministic=False):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
         for i in range(len(strides)):
             stride = strides[i]
-            layers.append(block(self.in_planes, planes, stride))
+            layers.append(block(self.in_planes, planes, stride, nondeterministic=nondeterministic))
             if i < len(strides) - 1:
                 layers.append(nn.ReLU())
             self.in_planes = planes
         return nn.Sequential(*layers)
 
-    def forward(self, x, index_mixup = None, lam = -1):
+    def forward(self, x, index_mixup = None, lam = -1, run_type = 'forward'):
+        if run_type == 'linear':
+            return self.linear(x)
+        elif run_type == 'linear_rot':
+            return self.linear_rot(x)
         if lam != -1:
             mixup_layer = random.randint(0, len(self.layers))
         else:
@@ -77,8 +88,8 @@ class ResNet(nn.Module):
             return (out, out_rot), features
         return out, features
 
-def ResNet18(feature_maps, input_shape, num_classes, few_shot, rotations):
-    return ResNet(BasicBlock, [2, 2, 2, 2], feature_maps, input_shape, num_classes, few_shot, rotations)
+def ResNet18(feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=False):
+    return ResNet(BasicBlock, [2, 2, 2, 2], feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=nondeterministic)
 
-def ResNet20(feature_maps, input_shape, num_classes, few_shot, rotations):
-    return ResNet(BasicBlock, [3, 3, 3], feature_maps, input_shape, num_classes, few_shot, rotations)
+def ResNet20(feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=False):
+    return ResNet(BasicBlock, [3, 3, 3], feature_maps, input_shape, num_classes, few_shot, rotations, nondeterministic=nondeterministic)
