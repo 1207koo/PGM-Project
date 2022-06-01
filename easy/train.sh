@@ -1,0 +1,1 @@
+python main.py --dataset-path "/gallery_moma/junseo.koo/dataset" --dataset miniimagenet --model resnet12 --epochs 0 --manifold-mixup 500 --rotations --cosine --gamma 0.9 --milestones 100 --batch-size 128 --preprocessing ME --n-shots 1 --skip-epochs 450 --save-model "save/mini-test.pt1"

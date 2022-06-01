@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import json
 import os
+import glob
 
 class CPUDataset():
     def __init__(self, data, targets, transforms = [], batch_size = args.batch_size, use_hd = False):
@@ -303,28 +304,19 @@ def miniImageNet(use_hd = True):
     datasets = {}
     classes = []
     total = 60000
-    count = 0
-    for subset in ["train", "validation", "test"]:
+    for subset in ["train", "val", "test"]:
         data = []
         target = []
-        with open(args.dataset_path + "miniimagenetimages/" + subset + ".csv", "r") as f:
-            start = 0
-            for line in f:
-                if start == 0:
-                    start += 1
+        for class_dir in sorted(glob.glob(os.path.join(args.dataset_path, 'miniImageNet', subset, '*'))):
+            c = class_dir.split('/')[-1]
+            classes.append(c)
+            for img_path in sorted(glob.glob(os.path.join(class_dir, '*.*'))):
+                target.append(len(classes) - 1)
+                if not use_hd:
+                    image = transforms.ToTensor()(np.array(Image.open(img_path).convert('RGB')))
+                    data.append(image)
                 else:
-                    splits = line.split(",")
-                    fn, c = splits[0], splits[1]
-                    if c not in classes:
-                        classes.append(c)
-                    count += 1
-                    target.append(len(classes) - 1)
-                    path = args.dataset_path + "miniimagenetimages/" + "images/" + fn
-                    if not use_hd:
-                        image = transforms.ToTensor()(np.array(Image.open(path).convert('RGB')))
-                        data.append(image)
-                    else:
-                        data.append(path)
+                    data.append(img_path)
         datasets[subset] = [data, torch.LongTensor(target)]
     print()
     norm = transforms.Normalize(np.array([x / 255.0 for x in [125.3, 123.0, 113.9]]), np.array([x / 255.0 for x in [63.0, 62.1, 66.7]]))
@@ -335,7 +327,7 @@ def miniImageNet(use_hd = True):
     else:
         train_loader = iterator(datasets["train"][0], datasets["train"][1], transforms = train_transforms, forcecpu = True, use_hd = use_hd)
     train_clean = iterator(datasets["train"][0], datasets["train"][1], transforms = all_transforms, forcecpu = True, shuffle = False, use_hd = use_hd)
-    val_loader = iterator(datasets["validation"][0], datasets["validation"][1], transforms = all_transforms, forcecpu = True, shuffle = False, use_hd = use_hd)
+    val_loader = iterator(datasets["val"][0], datasets["val"][1], transforms = all_transforms, forcecpu = True, shuffle = False, use_hd = use_hd)
     test_loader = iterator(datasets["test"][0], datasets["test"][1], transforms = all_transforms, forcecpu = True, shuffle = False, use_hd = use_hd)
     return (train_loader, train_clean, val_loader, test_loader), [3, 84, 84], (64, 16, 20, 600), True, False
 
@@ -354,45 +346,40 @@ def tieredImageNet(use_hd=True):
     datasets = {}
     total = 790400
     num_elements = {}
-    buffer = {'train':0, 'val':351, 'test':351+97}
-    for subset in ['train', 'val', 'test']:
+    for subset in ["train", "val", "test"]:
         data = []
         target = []
         num_elements[subset]=[]
         if subset=='train':
             data_train = []
             target_train = []
-        subset_path = os.path.join(args.dataset_path, 'tieredimagenet', subset)
-        classe_files = os.listdir(subset_path)
-        
-        for c, classe in enumerate(classe_files):
-            files = os.listdir(os.path.join(subset_path, classe))
+        for class_dir in sorted(glob.glob(os.path.join(args.dataset_path, 'tieredImageNet', subset, '*'))):
+            c = class_dir.split('/')[-1]
+            classes.append(c)
             count = 0
-            for file in files:
+            for img_path in sorted(glob.glob(os.path.join(class_dir, '*.*'))):
                 count += 1
-                target.append(c+buffer[subset])
+                target.append(len(classes) - 1)
                 if subset=='train':
-                    target_train.append(c)
-                path = os.path.join(subset_path, classe, file)
+                    target_train.append(len(classes) - 1)
                 if not use_hd:
-                    image = transforms.ToTensor()(np.array(Image.open(path).convert('RGB')))
+                    image = transforms.ToTensor()(np.array(Image.open(img_path).convert('RGB')))
                     data.append(image)
                     if subset=='train':
                         data_train.append(image)
                 else:
-                    data.append(path)
+                    data.append(img_path)
                     if subset=='train':
-                        data_train.append(path)
+                        data_train.append(img_path)
             num_elements[subset].append(count)
             if count<1300:
                 for i in range(1300-count):
-                    target.append(c+buffer[subset]) 
+                    target.append(len(classes) - 1)
                     if not use_hd: # add the same element
-                        image = transforms.ToTensor()(np.array(Image.open(path).convert('RGB')))
+                        image = transforms.ToTensor()(np.array(Image.open(img_path).convert('RGB')))
                         data.append(image)
                     else:
-                        data.append(path) 
-                        
+                        data.append(img_path) 
         datasets[subset] = [data, torch.LongTensor(target)]
 
     datasets['train_base']=[data_train, torch.LongTensor(target_train)] # clean train without duplicates
@@ -423,24 +410,20 @@ def fc100(use_hd=True):
     Images size : 84x84
     """
     datasets = {}
-    total = 60000   
-    buffer = {'train':0, 'val':60, 'test':60+20}
-    for subset in ['train', 'val', 'test']:
+    total = 60000
+    for subset in ["train", "val", "test"]:
         data = []
         target = []
-        subset_path = os.path.join(args.dataset_path, 'FC100', subset)
-        classe_files = os.listdir(subset_path)
-        
-        for c, classe in enumerate(classe_files):
-            files = os.listdir(os.path.join(subset_path, classe))
-            for file in files:
-                target.append(c+buffer[subset])
-                path = os.path.join(subset_path, classe, file)
+        for class_dir in sorted(glob.glob(os.path.join(args.dataset_path, 'FewShot-CIFAR100', subset, '*'))):
+            c = class_dir.split('/')[-1]
+            classes.append(c)
+            for img_path in sorted(glob.glob(os.path.join(class_dir, '*.*'))):
+                target.append(len(classes) - 1)
                 if not use_hd:
-                    image = transforms.ToTensor()(np.array(Image.open(path).convert('RGB')))
+                    image = transforms.ToTensor()(np.array(Image.open(img_path).convert('RGB')))
                     data.append(image)
                 else:
-                    data.append(path)
+                    data.append(img_path)
         datasets[subset] = [data, torch.LongTensor(target)]
             
     assert (len(datasets['train'][0])+len(datasets['val'][0])+len(datasets['test'][0])==total), 'Total number of sample per class is not 1300'
