@@ -1,1 +1,1 @@
-python main.py --device "cuda:0123" --dataset miniimagenet --model ResNet12_nd --rotations --cosine --save-model "save_nd/mini0.pt"
+python main.py --wandb "1207koo" --device "cuda:0123" --dataset miniimagenet --model ResNet12_nd --rotations --cosine --save-model "save_ndv/mini0.pt" --gamma 0.8

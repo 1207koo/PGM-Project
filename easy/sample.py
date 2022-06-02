@@ -11,7 +11,7 @@ class Sampler2(nn.Module):
         super(Sampler2, self).__init__()        
         layers = []
         if nondeterministic:
-            layers.append(nd.Linear(10 * feature_maps, 20 * feature_maps, bias=False, variance=0.1))
+            layers.append(nd.Linear(10 * feature_maps, 20 * feature_maps, bias=False, variance=1))
         else:
             layers.append(nn.Linear(10 * feature_maps, 20 * feature_maps, bias=False))
         layers.append(nn.Linear(20 * feature_maps, 10 * feature_maps, bias=False))     
@@ -31,7 +31,7 @@ class Sampler3(nn.Module):
         layers = []
         layers.append(nn.Linear(10 * feature_maps, 40 * feature_maps, bias=False))
         if nondeterministic:
-            layers.append(nd.Linear(40 * feature_maps, 20 * feature_maps, bias=False, variance=0.1))
+            layers.append(nd.Linear(40 * feature_maps, 20 * feature_maps, bias=False, variance=1))
         else:
             layers.append(nn.Linear(40 * feature_maps, 20 * feature_maps, bias=False))
         layers.append(nn.Linear(20 * feature_maps, 10 * feature_maps, bias=False))       

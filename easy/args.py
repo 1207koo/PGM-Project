@@ -53,6 +53,8 @@ parser.add_argument("--sampler-model", type=str, default="", help="sampler model
 parser.add_argument("--true-sample", type=str, default=2, help="number to sample with model")
 parser.add_argument("--false-sample", type=int, default=4, help="number to sample with sampler")
 parser.add_argument("--discriminator-model", type=str, default="", help="discriminator model to train")
+parser.add_argument("--lambda-g", type=float, default=0.1, help="generator loss weight")
+parser.add_argument("--lambda-d", type=float, default=0.1, help="discriminator loss weight")
 parser.add_argument("--preprocessing", type=str, default="ME", help="preprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 parser.add_argument("--postprocessing", type=str, default="", help="postprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 

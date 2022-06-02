@@ -205,7 +205,7 @@ def get_features(model, loader, n_aug = args.sample_aug):
                 features_total = [torch.cat(af, dim = 0).reshape(num_classes, -1, af[0].shape[1]) for af in all_features]
             else:
                 features_total = [features_total[i] + torch.cat(all_features[i], dim = 0).reshape(num_classes, -1, all_features[i][0].shape[1]) for i in range(args.false_sample + 1)]
-        return [features / n_aug for features in features_total]
+        return torch.stack([features / n_aug for features in features_total])
     else:
         for augs in range(n_aug):
             all_features, offset, max_offset = [], 1000000, 0
@@ -269,7 +269,7 @@ def evaluate_shot(index, train_features, val_features, novel_features, few_shot_
                         if k == 'model':
                             torch.save(model[k].module.state_dict(), args.save_model + str(args.n_shots[index]))
                         else:
-                            l = len(args.save_model.split('.')[-1])
+                            l = len(args.save_model.split('.')[-1]) + 1
                             torch.save(model[k].module.state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:] + str(args.n_shots[index]))
             if args.save_features != "":
                 if 'sampler' in model.keys():

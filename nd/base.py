@@ -17,16 +17,14 @@ class NondeterministicLayer(nn.Module):
         if return_mu:
             return mu
         if self.variance is None:
-            var = torch.exp(self.logvar_layer(x))
-            sqrt_ = torch.sqrt
+            sigma = torch.exp(self.logvar_layer(x) / 2.0)
         else:
-            var = self.variance
-            sqrt_ = np.sqrt
+            sigma = np.sqrt(self.variance)
         
         if self.noise.lower() == 'gaussian':
-            y = mu + sqrt_(var) * torch.randn(mu.size(), device=x.device)
+            y = mu + sigma * torch.randn(mu.size(), device=x.device)
         elif self.noise.lower() == 'uniform':
-            y = mu + sqrt_(12.0 * var) * (torch.rand(mu.size(), device=x.device) - 0.5)
+            y = mu + np.sqrt(12.0) * sigma * (torch.rand(mu.size(), device=x.device) - 0.5)
         else:
             raise NotImplementedError
         return y

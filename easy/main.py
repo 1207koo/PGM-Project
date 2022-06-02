@@ -137,6 +137,7 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                         scores = model['discriminator'](feature)
                         loss_g += gan_loss(scores, True)
                     loss_g /= args.false_sample
+                    loss_g *= args.lambda_g
                     loss_g.backward()
                     optimizer['sampler'].step()
                     # discriminator
@@ -174,6 +175,7 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                         c += 1
                         loss_d += gan_loss(scores, False)
                     loss_d /= c
+                    loss_d *= args.lambda_d
                     loss_d.backward()
                     optimizer['discriminator'].step()
                     # feature extraction (+ sampler)
@@ -384,13 +386,10 @@ def train_complete(model, loaders, mixup = False):
             optimizer = {}
             scheduler = {}
             for k in model.keys():
-                base = 1.0
-                if k != 'model':
-                    base = 0.1
                 if lr < 0:
-                    optimizer[k] = torch.optim.Adam(model[k].parameters(), lr = -1 * base * lr)
+                    optimizer[k] = torch.optim.Adam(model[k].parameters(), lr = -1 * lr)
                 else:
-                    optimizer[k] = torch.optim.SGD(model[k].parameters(), lr = base * lr, momentum = 0.9, weight_decay = 5e-4, nesterov = True)
+                    optimizer[k] = torch.optim.SGD(model[k].parameters(), lr = lr, momentum = 0.9, weight_decay = 5e-4, nesterov = True)
                 if args.cosine:
                     scheduler[k] = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer[k], T_max = args.milestones[0] * length)
                 else:
@@ -413,7 +412,7 @@ def train_complete(model, loaders, mixup = False):
                     if k == 'model':
                         torch.save(model[k].module.state_dict(), args.save_model)
                     else:
-                        l = len(args.save_model.split('.')[-1])
+                        l = len(args.save_model.split('.')[-1]) + 1
                         torch.save(model[k].module.state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:])
         
         if (epoch + 1) > args.skip_epochs and (epoch - args.skip_epochs) % args.test_every == 0:
