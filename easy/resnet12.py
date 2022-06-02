@@ -14,7 +14,7 @@ class BasicBlockRN12(nn.Module):
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         if nondeterministic:
-            self.conv2 = nd.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
+            self.conv2 = nd.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False, variance=0.1)
         else:
             self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
