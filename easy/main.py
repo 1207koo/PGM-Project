@@ -131,7 +131,7 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                     loss_g = 0.0
                     for i in range(args.false_sample):
                         if 'double' in args.discriminator_model.lower():
-                            feature = torch.cat([tf[0], ff[i]], dim=1)
+                            feature = torch.cat([tf[0].detach(), ff[i]], dim=1)
                         else:
                             feature = ff[i]
                         scores = model['discriminator'](feature)
@@ -256,7 +256,6 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                     for i in range(args.false_sample):
                         loss += crit(fo[i], ff[i], target)
                     loss /= (args.true_sample + args.false_sample)
-                    loss.backward()
             else:
                 output, features = model['model'](data)
                 if args.rotations:
@@ -264,7 +263,8 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                     loss = 0.5 * crit(output, features, target) + 0.5 * crit(output_rot, features, target_rot)                
                 else:
                     loss = crit(output, features, target)
-                loss.backward()
+        
+        loss.backward()
 
         losses += loss.item() * data.shape[0]
         total += data.shape[0]
