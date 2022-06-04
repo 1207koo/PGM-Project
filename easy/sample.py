@@ -5,13 +5,14 @@ import torch.nn.functional as F
 import sys
 sys.path.append('..')
 import nd
+from args import *
 
 class Sampler2(nn.Module):
     def __init__(self, feature_maps, nondeterministic=False):
         super(Sampler2, self).__init__()        
         layers = []
         if nondeterministic:
-            layers.append(nd.Linear(10 * feature_maps, 20 * feature_maps, bias=False, variance=1))
+            layers.append(nd.Linear(10 * feature_maps, 20 * feature_maps, bias=False, variance = args.variance, batchnorm=True))
         else:
             layers.append(nn.Linear(10 * feature_maps, 20 * feature_maps, bias=False))
         layers.append(nn.Linear(20 * feature_maps, 10 * feature_maps, bias=False))     
@@ -31,7 +32,7 @@ class Sampler3(nn.Module):
         layers = []
         layers.append(nn.Linear(10 * feature_maps, 40 * feature_maps, bias=False))
         if nondeterministic:
-            layers.append(nd.Linear(40 * feature_maps, 20 * feature_maps, bias=False, variance=1))
+            layers.append(nd.Linear(40 * feature_maps, 20 * feature_maps, bias=False, variance = args.variance, batchnorm=True))
         else:
             layers.append(nn.Linear(40 * feature_maps, 20 * feature_maps, bias=False))
         layers.append(nn.Linear(20 * feature_maps, 10 * feature_maps, bias=False))       

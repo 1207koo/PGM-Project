@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import os
+import wandb
 from args import *
 from utils import *
 
@@ -261,16 +263,24 @@ def evaluate_shot(index, train_features, val_features, novel_features, few_shot_
                     for k in model.keys():
                         if k == 'model':
                             torch.save(model[k].state_dict(), args.save_model + str(args.n_shots[index]))
+                            if args.wandb:
+                                torch.save(model[k].state_dict(), os.path.join('save', wandb.run.name + '.pt') + str(args.n_shots[index]))
                         else:
                             l = len(args.save_model.split('.')[-1]) + 1
                             torch.save(model[k].state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:] + str(args.n_shots[index]))
+                            if args.wandb:
+                                torch.save(model[k].state_dict(), os.path.join('save', wandb.run.name + '_%s.pt'%k) + str(args.n_shots[index]))
                 else:
                     for k in model.keys():
                         if k == 'model':
                             torch.save(model[k].module.state_dict(), args.save_model + str(args.n_shots[index]))
+                            if args.wandb:
+                                torch.save(model[k].module.state_dict(), os.path.join('save', wandb.run.name + '.pt') + str(args.n_shots[index]))
                         else:
                             l = len(args.save_model.split('.')[-1]) + 1
                             torch.save(model[k].module.state_dict(), args.save_model[:-l] + '_' + k + args.save_model[-l:] + str(args.n_shots[index]))
+                            if args.wandb:
+                                torch.save(model[k].module.state_dict(), os.path.join('save', wandb.run.name + '_%s.pt'%k) + str(args.n_shots[index]))
             if args.save_features != "":
                 if 'sampler' in model.keys():
                     torch.save(torch.cat([train_features, torch.cat(val_features), torch.cat(novel_features)], dim = 0), args.save_features + str(args.n_shots[index]))

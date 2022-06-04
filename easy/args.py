@@ -38,7 +38,7 @@ python main.py --device cuda:012 --dataset miniimagenet --model S2M2R --lr -0.00
 parser.add_argument("--batch-size", type=int, default=64, help="batch size")
 parser.add_argument("--batch-fs", type=int, default=20, help="batch size for few shot runs")
 parser.add_argument("--feature-maps", type=int, default=64, help="number of feature maps")
-parser.add_argument("--lr", type=float, default="0.1", help="initial learning rate (negative is for Adam, e.g. -0.001)")
+parser.add_argument("--lr", type=float, default=0.001, help="initial learning rate (negative is for Adam, e.g. -0.001)")
 parser.add_argument("--epochs", type=int, default=240, help="total number of epochs")
 parser.add_argument("--milestones", type=str, default="60", help="milestones for lr scheduler, can be int (then milestones every X epochs) or list. 0 means no milestones")
 parser.add_argument("--gamma", type=float, default=1, help="multiplier for lr at milestones")
@@ -53,8 +53,9 @@ parser.add_argument("--sampler-model", type=str, default="", help="sampler model
 parser.add_argument("--true-sample", type=str, default=2, help="number to sample with model")
 parser.add_argument("--false-sample", type=int, default=4, help="number to sample with sampler")
 parser.add_argument("--discriminator-model", type=str, default="", help="discriminator model to train")
-parser.add_argument("--lambda-g", type=float, default=0.1, help="generator loss weight")
-parser.add_argument("--lambda-d", type=float, default=0.1, help="discriminator loss weight")
+parser.add_argument("--variance", type=float, default=1.0, help="variance for nondeterministic layer")
+parser.add_argument("--lambda-g", type=float, default=1.0, help="generator loss weight")
+parser.add_argument("--lambda-d", type=float, default=1.0, help="discriminator loss weight")
 parser.add_argument("--preprocessing", type=str, default="ME", help="preprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 parser.add_argument("--postprocessing", type=str, default="", help="postprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 
@@ -150,5 +151,8 @@ if args.gamma == -1:
 
 if args.mm:
     args.mixup = True
-    
+
+if args.variance < 0:
+    args.variance = None
+
 print("args, ", end='')
