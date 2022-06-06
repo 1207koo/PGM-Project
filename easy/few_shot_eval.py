@@ -51,9 +51,21 @@ def ncm(train_features, features, run_classes, run_indices, n_shots, elements_tr
             means = torch.mean(runs[:,:,:,:n_shots], dim = 3)
             distances = []
             for i in range(n_feat):
+                distances.append([])
                 for j in range(n_feat):
-                    distances.append(torch.norm(runs[i,:,:,n_shots:].reshape(batch_few_shot_runs, args.n_ways, 1, -1, dim) - means[j].reshape(batch_few_shot_runs, 1, args.n_ways, 1, dim), dim = 4, p = 2))
-            distances = torch.stack(distances).mean(0)
+                    distances[i].append(torch.norm(runs[i,:,:,n_shots:].reshape(batch_few_shot_runs, args.n_ways, 1, -1, dim) - means[j].reshape(batch_few_shot_runs, 1, args.n_ways, 1, dim), dim = 4, p = 2))
+                if args.support_aggregate == 'min':
+                    distances[i] = torch.stack(distances[i]).min(0)[0]
+                elif args.support_aggregate == 'mean':
+                    distances[i] = torch.stack(distances[i]).mean(0)
+                else:
+                    distances[i] = torch.stack(distances[i]).mean(0)
+            if args.query_aggregate == 'min':
+                distances = torch.stack(distances).min(0)[0]
+            elif args.query_aggregate == 'mean':
+                distances = torch.stack(distances).mean(0)
+            else:
+                distances = torch.stack(distances).mean(0)
             winners = torch.min(distances, dim = 2)[1]
             scores += list((winners == targets).float().mean(dim = 1).mean(dim = 1).to("cpu").numpy())
         return stats(scores, "")
@@ -283,7 +295,7 @@ def evaluate_shot(index, train_features, val_features, novel_features, few_shot_
                                 torch.save(model[k].module.state_dict(), os.path.join('save', wandb.run.name + '_%s.pt'%k) + str(args.n_shots[index]))
             if args.save_features != "":
                 if 'sampler' in model.keys():
-                    torch.save(torch.cat([train_features, torch.cat(val_features), torch.cat(novel_features)], dim = 0), args.save_features + str(args.n_shots[index]))
+                    torch.save(torch.cat([train_features, val_features, novel_features], dim = 1), args.save_features + str(args.n_shots[index]))
                 else:
                     torch.save(torch.cat([train_features, val_features, novel_features], dim = 0), args.save_features + str(args.n_shots[index]))
         few_shot_meta_data["best_val_acc"][index] = val_acc

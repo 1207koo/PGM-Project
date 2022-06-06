@@ -187,8 +187,8 @@ def train(model, train_loader, optimizer, epoch, scheduler, mixup = False, mm = 
                         loss += 0.5 * crit(fo[i], ff[i], target) + 0.5 * crit(fr[i], ff[i], target_rot)
                     loss /= (args.true_sample + args.false_sample)
                 else:
-                    to, tf = [], [], []
-                    fo, ff = [], [], []
+                    to, tf = [], []
+                    fo, ff = [], []
                     for i in range(args.true_sample):
                         output, features = model['model'](data)
                         to.append(output)
@@ -537,9 +537,14 @@ if args.test_features != "":
         filenames = [filenames]
     test_features = torch.cat([torch.load(fn, map_location=torch.device(args.device)).to(args.dataset_device) for fn in filenames], dim = 2)
     print("Testing features of shape", test_features.shape)
-    train_features = test_features[:num_classes]
-    val_features = test_features[num_classes:num_classes + val_classes]
-    test_features = test_features[num_classes + val_classes:]
+    if len(test_features.shape) == 4:
+        train_features = test_features[:, :num_classes]
+        val_features = test_features[:, num_classes:num_classes + val_classes]
+        test_features = test_features[:, num_classes + val_classes:]
+    else:
+        train_features = test_features[:num_classes]
+        val_features = test_features[num_classes:num_classes + val_classes]
+        test_features = test_features[num_classes + val_classes:]
     if not args.transductive:
         for i in range(len(args.n_shots)):
             val_acc, val_conf, test_acc, test_conf = few_shot_eval.evaluate_shot(i, train_features, val_features, test_features, few_shot_meta_data)

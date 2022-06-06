@@ -56,6 +56,8 @@ parser.add_argument("--discriminator-model", type=str, default="", help="discrim
 parser.add_argument("--variance", type=float, default=1.0, help="variance for nondeterministic layer")
 parser.add_argument("--lambda-g", type=float, default=1.0, help="generator loss weight")
 parser.add_argument("--lambda-d", type=float, default=1.0, help="discriminator loss weight")
+parser.add_argument("--support-aggregate", type=str, default='mean', help="aggregation method for support descriptors")
+parser.add_argument("--query-aggregate", type=str, default='mean', help="aggregation method for query descriptors")
 parser.add_argument("--preprocessing", type=str, default="ME", help="preprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 parser.add_argument("--postprocessing", type=str, default="", help="postprocessing sequence for few shot, can contain R:relu P:sqrt E:sphering and M:centering")
 
