@@ -70,10 +70,22 @@ with torch.no_grad():
         print("Number of trainable parameters in %s is: "%k + str(np.sum([p.numel() for p in model[k].parameters()])))
     print()
 
+    save_image = True
+    support_idx = 0
+    query_idx = 0
     images = []
-    for class_path in sorted(glob.glob(os.path.join(args.dataset_path, args.dataset, 'test', '*')))[:args.n_ways]:
-        for img_path in sorted(glob.glob(os.path.join(class_path, '*.*')))[:args.n_shots[0]+args.n_queries]:
-            images.append(transforms.ToTensor()(np.array(Image.open(img_path).convert('RGB'))))
+    for class_i, class_path in enumerate(sorted(glob.glob(os.path.join(args.dataset_path, args.dataset, 'test', '*')))[:args.n_ways]):
+        for img_i, img_path in enumerate(sorted(glob.glob(os.path.join(class_path, '*.*')))[:args.n_shots[0]+args.n_queries]):
+            img = Image.open(img_path).convert('RGB')
+            if save_image:
+                os.makedirs('images/class%d'%class_i, exist_ok=True)
+                if img_i < args.n_shots[0]:
+                    img.save('images/class%d/support%d.jpg'%(class_i, support_idx))
+                    support_idx += 1
+                else:
+                    img.save('images/class%d/query%d.jpg'%(class_i, query_idx))
+                    query_idx += 1
+            images.append(transforms.ToTensor()(np.array(img)))
     print('Images loaded: %d images'%len(images))
     print('%d-way %d-shot, %d queries each'%(args.n_ways, args.n_shots[0], args.n_queries))
     images = torch.stack(images)
