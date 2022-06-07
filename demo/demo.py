@@ -4,6 +4,7 @@ from torchvision import transforms
 import numpy as np
 import sys
 import glob
+import time
 from PIL import Image
 import os
 
@@ -91,9 +92,13 @@ with torch.no_grad():
     images = torch.stack(images)
 
     descriptors = []
+    tic = time.time()
     descriptors.append(model['model'](images)[1])
+    print('Extracting 1 real descriptors took %.2f sec'%(time.time() - tic))
+    tic = time.time()
     for _ in range(args.false_sample):
         descriptors.append(model['sampler'](descriptors[-1]))
+    print('Extracting %d fake descriptors took %.2f sec'%(args.false_sample, time.time() - tic))
     descriptors = torch.stack(descriptors)
     desc_num, _, desc_dim = descriptors.shape
     descriptors -= descriptors.mean(dim=1, keepdim=True)
@@ -115,7 +120,7 @@ with torch.no_grad():
 
     gt = []
     pd = []
-    space = 6
+    space = 8
     space_text = '%%%ds'%space
     print('\n Distances:')
     text = space_text%''

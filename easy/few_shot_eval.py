@@ -4,6 +4,7 @@ import os
 import wandb
 from args import *
 from utils import *
+from tqdm import tqdm
 
 n_runs = args.n_runs
 batch_few_shot_runs = args.batch_fs
@@ -125,7 +126,7 @@ def kmeans(train_features, features, run_classes, run_indices, n_shots, elements
         targets = torch.arange(args.n_ways).unsqueeze(1).unsqueeze(0).to(args.device)
         features = preprocess(train_features, features, elements_train=elements_train)
         scores = []
-        for batch_idx in range(n_runs // batch_few_shot_runs):
+        for batch_idx in tqdm(range(n_runs // batch_few_shot_runs)):
             runs = generate_runs(features, run_classes, run_indices, batch_idx)
             means = torch.mean(runs[:,:,:,:n_shots], dim = 3)
             sims = []
@@ -294,6 +295,7 @@ def evaluate_shot(index, train_features, val_features, novel_features, few_shot_
                             if args.wandb:
                                 torch.save(model[k].module.state_dict(), os.path.join('save', wandb.run.name + '_%s.pt'%k) + str(args.n_shots[index]))
             if args.save_features != "":
+                os.makedirs(os.path.dirname(args.save_features), exist_ok=True)
                 if 'sampler' in model.keys():
                     torch.save(torch.cat([train_features, val_features, novel_features], dim = 1), args.save_features + str(args.n_shots[index]))
                 else:
