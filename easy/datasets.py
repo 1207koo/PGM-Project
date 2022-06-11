@@ -344,6 +344,7 @@ def tieredImageNet(use_hd=True):
     Images size : 84x84
     """
     datasets = {}
+    classes = []
     total = 790400
     num_elements = {}
     for subset in ["train", "val", "test"]:
@@ -410,6 +411,7 @@ def fc100(use_hd=True):
     Images size : 84x84
     """
     datasets = {}
+    classes = []
     total = 60000
     for subset in ["train", "val", "test"]:
         data = []
